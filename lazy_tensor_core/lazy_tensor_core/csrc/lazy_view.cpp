@@ -7,7 +7,6 @@
 #include <numeric>
 
 #include "lazy_tensor_core/csrc/helpers.h"
-#include "lazy_tensor_core/csrc/ops/ops.h"
 #include "lazy_tensor_core/csrc/view_ops/as_strided.h"
 #include "lazy_tensor_core/csrc/view_ops/as_strided_view_update.h"
 #include "lazy_tensor_core/csrc/view_ops/diagonal.h"

@@ -31,6 +31,11 @@ torch::lazy::hash_t ScalarHash(const at::Scalar& s);
 
 using at::operator<<;
 
+inline torch::lazy::NodePtr ScalarOp(const at::Scalar& value,
+                                     c10::ScalarType type) {
+  return torch::lazy::MakeNode<Scalar>(value, type);
+}
+
 }  // namespace ops
 }  // namespace ir
 }  // namespace torch_lazy_tensors

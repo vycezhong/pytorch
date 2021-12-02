@@ -3,7 +3,7 @@
 #include <memory>
 
 #include "lazy_tensor_core/csrc/helpers.h"
-#include "lazy_tensor_core/csrc/ops/ops.h"
+#include "lazy_tensor_core/csrc/ops/generic.h"
 
 namespace torch_lazy_tensors {
 namespace ir {
