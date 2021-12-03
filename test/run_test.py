@@ -204,6 +204,7 @@ WINDOWS_BLOCKLIST = [
     "distributed/_sharded_tensor/ops/test_embedding_bag",
     "distributed/_sharded_tensor/ops/test_init",
     "distributed/_sharded_tensor/ops/test_linear",
+    "distributed/_sharded_optim/test_sharded_optim",
 ] + FSDP_TEST
 
 ROCM_BLOCKLIST = [
@@ -216,6 +217,7 @@ ROCM_BLOCKLIST = [
     "distributed/_sharded_tensor/ops/test_embedding_bag",
     "distributed/_sharded_tensor/ops/test_init",
     "distributed/_sharded_tensor/ops/test_linear",
+    "distributed/_sharded_optim/test_sharded_optim",
     "test_determination",
     "test_multiprocessing",
     "test_jit_legacy",
@@ -353,6 +355,7 @@ DISTRIBUTED_TESTS = [
     "distributed/_sharded_tensor/ops/test_embedding_bag",
     "distributed/_sharded_tensor/ops/test_init",
     "distributed/_sharded_tensor/ops/test_linear",
+    "distributed/_sharded_optim/test_sharded_optim",
 ] + [test for test in TESTS if test.startswith("distributed/fsdp")]
 
 # Dictionary matching test modules (in TESTS) to lists of test cases (within that test_module) that would be run when
