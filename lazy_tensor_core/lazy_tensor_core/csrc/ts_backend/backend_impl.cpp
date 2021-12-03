@@ -69,7 +69,7 @@ class TSBackendImpl : public torch::lazy::BackendImplInterface {
       const at::Tensor& tensor, const torch::lazy::Shape& shape,
       const torch::lazy::BackendDevice& device) const override {
     at::TensorOptions options = tensor.options().device(default_device_type_.c10Type());
-    return std::make_shared<TSData>(tensor.to(options), shape, device);
+    return std::make_shared<TSData>(tensor.to(options, /* non_blocking */true), shape, device);
   }
 
   std::string GetComputationBackendText(
