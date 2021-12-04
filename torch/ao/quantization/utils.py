@@ -108,6 +108,17 @@ def weight_is_statically_quantized(qconfig):
     """
     return weight_dtype(qconfig) in [torch.quint8, torch.qint8]
 
+def module_has_sparse_params(module: torch.nn.Module):
+    """Given a module, checks if it has sparse parameters attached to it.
+
+    The parameters for the sparse and sparse quantized layers are stored in the
+    modules' `sparse_params` attribute. This checks if that attribute exists,
+    which is an indicator if the layer is sparsified.
+
+    TODO: Should check the level of the sparsity and set to dense if it is 0.
+    """
+    return hasattr(module, 'sparse_params')
+
 def get_qconfig_dtypes(qconfig):
     r""" returns the qconfig tuple for qconfig:
     (activation_dtype, weight_dtype, activation_compute_dtype)
