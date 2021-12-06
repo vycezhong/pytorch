@@ -1,4 +1,5 @@
 import torch
+import unittest
 from copy import deepcopy
 from functools import wraps, partial
 from itertools import chain
@@ -10,6 +11,7 @@ from torch.testing._internal.common_device_type import (
 from torch.testing._internal.common_nn import nllloss_reference, get_reduction
 from torch.testing._internal.common_utils import (
     freeze_rng_state, set_single_threaded_if_parallel_tbb)
+from torch.testing._internal.common_methods_invocations import DecorateInfo
 from types import ModuleType
 from typing import List, Tuple, Type, Set, Dict
 
@@ -151,6 +153,7 @@ class ModuleInfo(object):
                  decorators=None,  # Additional decorators to apply to generated tests
                  dtypes=floating_types(),  # dtypes this function is expected to work with
                  supports_gradgrad=True,  # whether the op supports second order gradients
+                 supports_channels_last=False,  # whether the op supports channels last memory format
                  ):
         self.module_cls = module_cls
         self.module_inputs_func = module_inputs_func
@@ -158,6 +161,7 @@ class ModuleInfo(object):
         self.decorators = decorators
         self.dtypes = dtypes
         self.supports_gradgrad = supports_gradgrad
+        self.supports_channels_last = supports_channels_last
 
     def should_skip(self, cls_name, test_name, device_type, dtype):
         return any(si.is_active(cls_name, test_name, device_type, dtype) for si in self.skips)
@@ -267,6 +271,64 @@ def module_inputs_torch_nn_AvgPool1d(module_info, device, dtype, requires_grad, 
                     reference_fn=no_batch_dim_reference_fn)]
 
 
+def module_inputs_torch_nn_AdaptiveAvgPool2d(module_info, device, dtype, requires_grad, **kwargs):
+    make_input = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
+
+    return [
+        ModuleInput(constructor_input=FunctionInput(3,),
+                    forward_input=FunctionInput(make_input(shape=(1, 3, 5, 6))),
+                    desc='single')]
+
+
+def module_inputs_torch_nn_AdaptiveAvgPool3d(module_info, device, dtype, requires_grad, **kwargs):
+    make_input = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
+
+    return [
+        ModuleInput(constructor_input=FunctionInput(3,),
+                    forward_input=FunctionInput(make_input(shape=(2, 3, 5, 2, 7))),
+                    desc='single')]
+
+
+def module_inputs_torch_nn_BatchNorm2d(module_info, device, dtype, requires_grad, **kwargs):
+    make_input = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
+
+    return [
+        ModuleInput(constructor_input=FunctionInput(3,),
+                    forward_input=FunctionInput(make_input(shape=(2, 3, 6, 6))))]
+
+
+def module_inputs_torch_nn_BatchNorm3d(module_info, device, dtype, requires_grad, **kwargs):
+    make_input = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
+
+    return [
+        ModuleInput(constructor_input=FunctionInput(3,),
+                    forward_input=FunctionInput(make_input(shape=(2, 3, 4, 4, 4))))]
+
+
+def module_inputs_torch_nn_Conv2d(module_info, device, dtype, requires_grad, **kwargs):
+    make_input = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
+
+    return [
+        ModuleInput(constructor_input=FunctionInput(3, 4, 3),
+                    forward_input=FunctionInput(make_input(shape=(2, 3, 7, 5))))]
+
+
+def module_inputs_torch_nn_Conv3d(module_info, device, dtype, requires_grad, **kwargs):
+    make_input = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
+
+    return [
+        ModuleInput(constructor_input=FunctionInput(2, 3, (2, 3, 2)),
+                    forward_input=FunctionInput(make_input(shape=(1, 2, 4, 5, 4))))]
+
+
+def module_inputs_torch_nn_ConvTranspose2d(module_info, device, dtype, requires_grad, **kwargs):
+    make_input = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
+
+    return [
+        ModuleInput(constructor_input=FunctionInput(3, 4, 3, (3, 2), 1, (1, 1)),
+                    forward_input=FunctionInput(make_input(shape=(1, 3, 7, 6))))]
+
+
 def module_inputs_torch_nn_ELU(module_info, device, dtype, requires_grad, **kwargs):
     make_input = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
 
@@ -299,17 +361,48 @@ def module_inputs_torch_nn_CELU(module_info, device, dtype, requires_grad, **kwa
                     desc='no_batch_dim',
                     reference_fn=no_batch_dim_reference_fn)]
 
+
 def module_inputs_torch_nn_ReLU(module_info, device, dtype, requires_grad):
     make_input = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
 
-    module_inputs = [
-        ModuleInput(constructor_input=FunctionInput(),
-                    forward_input=FunctionInput(make_input((2, 3, 4, 5)))),
+    return [
         ModuleInput(constructor_input=FunctionInput(),
                     forward_input=FunctionInput(make_input(4)),
                     desc='no_batch_dim'),
+        ModuleInput(constructor_input=FunctionInput(),
+                    forward_input=FunctionInput(make_input((2, 3, 4, 5))),
+                    desc='channels_last_mem_format'),
+        ModuleInput(constructor_input=FunctionInput(),
+                    forward_input=FunctionInput(make_input((2, 3, 3, 4, 5))),
+                    desc='channels_last_3d_mem_format')]
+
+
+def module_inputs_torch_nn_Embedding(module_info, device, dtype, requires_grad, **kwargs):
+    make_empty = partial(torch.empty, device=device, dtype=torch.long, requires_grad=False)
+    return [
+        ModuleInput(
+            constructor_input=FunctionInput(num_embeddings=4, embedding_dim=3),
+            forward_input=FunctionInput(make_empty(2, 3).random_(4))
+        ),
+        ModuleInput(
+            constructor_input=FunctionInput(num_embeddings=4, embedding_dim=3),
+            forward_input=FunctionInput(make_empty(1, 512).random_(4).expand(7, 512)),
+            desc='discontiguous'
+        ),
     ]
-    return module_inputs
+
+
+def module_inputs_torch_nn_Hardswish(module_info, device, dtype, requires_grad, **kwargs):
+    make_input = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
+
+    return [
+        ModuleInput(
+            constructor_input=FunctionInput(),
+            forward_input=FunctionInput(make_input(shape=4)),
+            reference_fn=no_batch_dim_reference_fn,
+            desc='no_batch_dim',
+        )
+    ]
 
 
 def module_inputs_torch_nn_L1Loss(module_info, device, dtype, requires_grad, **kwargs):
@@ -327,15 +420,56 @@ def module_inputs_torch_nn_L1Loss(module_info, device, dtype, requires_grad, **k
                     desc='scalar')] + generate_regression_criterion_inputs(make_input)
 
 
-def module_inputs_torch_nn_Hardswish(module_info, device, dtype, requires_grad, **kwargs):
+def module_inputs_torch_nn_MaxPool2d(module_info, device, dtype, requires_grad, **kwargs):
+    make_input = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
+
+    return [
+        ModuleInput(
+            constructor_input=FunctionInput((3, 3), (2, 2), (1, 1)),
+            forward_input=FunctionInput(make_input(shape=((3, 7, 7)))),
+            desc='3d_input'),
+        ModuleInput(
+            constructor_input=FunctionInput((3, 3), (2, 2), (1, 1)),
+            forward_input=FunctionInput(make_input(shape=(1, 3, 7, 7))),
+            desc='4d_input'),
+        ModuleInput(
+            constructor_input=FunctionInput((3, 3), (2, 2), (1, 1), return_indices=True),
+            forward_input=FunctionInput(make_input(shape=(1, 3, 7, 7))),
+            desc='return_indices'),
+    ]
+
+
+def module_inputs_torch_nn_MaxPool3d(module_info, device, dtype, requires_grad, **kwargs):
+    make_input = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
+
+    return [
+        ModuleInput(
+            constructor_input=FunctionInput((2, 2, 2),),
+            forward_input=FunctionInput(make_input(shape=(2, 3, 5, 5, 5)))),
+        ModuleInput(
+            constructor_input=FunctionInput(2, (2, 2, 2)),
+            forward_input=FunctionInput(make_input(shape=(2, 3, 5, 5, 5))),
+            desc='stride'),
+        ModuleInput(
+            constructor_input=FunctionInput(2, 2, (1, 1, 1), return_indices=True),
+            forward_input=FunctionInput(make_input(shape=(2, 3, 5, 5, 5))),
+            desc='return_indices'),
+    ]
+
+
+def module_inputs_torch_nn_Sigmoid(module_info, device, dtype, requires_grad, **kwargs):
     make_input = partial(make_tensor, device=device, dtype=dtype, requires_grad=requires_grad)
 
     return [
         ModuleInput(
             constructor_input=FunctionInput(),
-            forward_input=FunctionInput(make_input(shape=4)),
-            reference_fn=no_batch_dim_reference_fn,
-            desc='no_batch_dim',
+            forward_input=FunctionInput(make_input(shape=(2, 3, 4, 5))),
+            desc='channels_last_mem_format'
+        ),
+        ModuleInput(
+            constructor_input=FunctionInput(),
+            forward_input=FunctionInput(make_input(shape=(2, 3, 3, 4, 5))),
+            desc='channels_last_3d_mem_format'
         )
     ]
 
@@ -361,41 +495,86 @@ def module_inputs_torch_nn_TransformerEncoderLayer(module_info, device, dtype, r
     ]
 
 
-def module_inputs_torch_nn_Embedding(module_info, device, dtype, requires_grad, **kwargs):
-    make_empty = partial(torch.empty, device=device, dtype=torch.long, requires_grad=False)
-    return [
-        ModuleInput(
-            constructor_input=FunctionInput(num_embeddings=4, embedding_dim=3),
-            forward_input=FunctionInput(make_empty(2, 3).random_(4))
-        ),
-        ModuleInput(
-            constructor_input=FunctionInput(num_embeddings=4, embedding_dim=3),
-            forward_input=FunctionInput(make_empty(1, 512).random_(4).expand(7, 512)),
-            desc='discontiguous'
-        ),
-    ]
-
-
 # Database of ModuleInfo entries in alphabetical order.
 module_db: List[ModuleInfo] = [
+    ModuleInfo(torch.nn.AdaptiveAvgPool2d,
+               module_inputs_func=module_inputs_torch_nn_AdaptiveAvgPool2d,
+               supports_channels_last=True,
+               skips=(
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_memory_format', device_type='cpu'),)
+               ),
+    ModuleInfo(torch.nn.AdaptiveAvgPool3d,
+               module_inputs_func=module_inputs_torch_nn_AdaptiveAvgPool3d,
+               supports_channels_last=True,
+               skips=(
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_memory_format'),)
+               ),
     ModuleInfo(torch.nn.AvgPool1d,
                module_inputs_func=module_inputs_torch_nn_AvgPool1d),
+    ModuleInfo(torch.nn.BatchNorm2d,
+               module_inputs_func=module_inputs_torch_nn_BatchNorm2d,
+               supports_channels_last=True),
+    ModuleInfo(torch.nn.BatchNorm3d,
+               module_inputs_func=module_inputs_torch_nn_BatchNorm3d,
+               supports_channels_last=True),
+    ModuleInfo(torch.nn.Conv2d,
+               module_inputs_func=module_inputs_torch_nn_Conv2d,
+               supports_channels_last=True,
+               skips=(
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_memory_format', dtypes=[torch.float64]),
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_memory_format', device_type='cpu'),)
+               ),
+    ModuleInfo(torch.nn.Conv3d,
+               module_inputs_func=module_inputs_torch_nn_Conv3d,
+               supports_channels_last=True,
+               skips=(
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_memory_format', dtypes=[torch.float64]),
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_memory_format', device_type='cpu'),
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_cpu_gpu_parity'),)
+               ),
+    ModuleInfo(torch.nn.ConvTranspose2d,
+               module_inputs_func=module_inputs_torch_nn_ConvTranspose2d,
+               supports_channels_last=True,
+               skips=(
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_memory_format', dtypes=[torch.float64]),
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_memory_format', device_type='cpu'),)
+               ),
     ModuleInfo(torch.nn.ELU,
                module_inputs_func=module_inputs_torch_nn_ELU),
+    ModuleInfo(torch.nn.Hardswish,
+               module_inputs_func=module_inputs_torch_nn_Hardswish,
+               supports_gradgrad=False),
     ModuleInfo(torch.nn.L1Loss,
                module_inputs_func=module_inputs_torch_nn_L1Loss),
     ModuleInfo(torch.nn.Linear,
                module_inputs_func=module_inputs_torch_nn_Linear),
+    ModuleInfo(torch.nn.MaxPool2d,
+               module_inputs_func=module_inputs_torch_nn_MaxPool2d,
+               supports_channels_last=True,
+               skips=(
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_non_contiguous_tensors'),
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_cpu_gpu_parity'),
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_memory_format', device_type='cpu'),)
+               ),
+    ModuleInfo(torch.nn.MaxPool3d,
+               module_inputs_func=module_inputs_torch_nn_MaxPool3d,
+               supports_channels_last=True,
+               skips=(
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_memory_format'),
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_non_contiguous_tensors'),
+                   DecorateInfo(unittest.skip("Skipped!"), 'TestModule', 'test_cpu_gpu_parity'),)
+               ),
     ModuleInfo(torch.nn.NLLLoss,
                module_inputs_func=module_inputs_torch_nn_NLLLoss),
-    ModuleInfo(torch.nn.Hardswish,
-               module_inputs_func=module_inputs_torch_nn_Hardswish,
-               supports_gradgrad=False),
+    ModuleInfo(torch.nn.Sigmoid,
+               module_inputs_func=module_inputs_torch_nn_Sigmoid,
+               supports_channels_last=True),
     ModuleInfo(torch.nn.TransformerEncoderLayer,
                module_inputs_func=module_inputs_torch_nn_TransformerEncoderLayer,
                supports_gradgrad=False),
     ModuleInfo(torch.nn.Embedding,
                module_inputs_func=module_inputs_torch_nn_Embedding),
     ModuleInfo(torch.nn.ReLU,
-               module_inputs_func=module_inputs_torch_nn_ReLU),
+               module_inputs_func=module_inputs_torch_nn_ReLU,
+               supports_channels_last=True),
 ]

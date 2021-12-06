@@ -514,6 +514,107 @@ class TestModule(TestCase):
                 self.assertEqual(cpu_grad_kwarg_input, gpu_grad_kwarg_input)
 
 
+    @modules([m for m in module_db if m.supports_channels_last])
+    def test_memory_format(self, device, dtype, module_info):
+        module_cls = module_info.module_cls
+        name = module_info.module_cls.__name__
+        module_inputs = module_info.module_inputs_func(module_info, device=device, dtype=dtype,
+                                                       requires_grad=False)
+        cudnn_greater_7_6 = False
+        cudnn_greater_8 = False
+        if torch.backends.cudnn.is_available():
+            cudnn_greater_7_6 = torch.backends.cudnn.version() >= 7603
+            cudnn_greater_8 = torch.backends.cudnn.version() >= 8005
+
+        def _get_mem_formats(channels_last=False, channels_last_3d=False):
+            if channels_last:
+                return ([torch.contiguous_format, torch.channels_last],
+                        [torch.preserve_format, torch.contiguous_format, torch.channels_last])
+            elif channels_last_3d:
+                return ([torch.contiguous_format, torch.channels_last_3d],
+                        [torch.preserve_format, torch.contiguous_format, torch.channels_last_3d])
+            else:
+                return ([torch.contiguous_format],
+                        [torch.preserve_format, torch.contiguous_format])
+
+        # Check that at least one Tensor input has dim=n
+        def _check_dims(obj, n):
+            if isinstance(obj, torch.Tensor):
+                return obj.dim() == n
+            elif isinstance(obj, (tuple, list)):
+                return any(_check_dims(o, n) for o in obj)
+            else:
+                return False
+
+        # Called after _check_dims
+        def _to_mem_format(obj, mem_format):
+            if isinstance(obj, torch.Tensor):
+                d = obj.dim()
+                if (mem_format == torch.channels_last and d != 4 or mem_format == torch.channels_last_3d and d != 5):
+                    return obj
+                return obj.to(memory_format=mem_format)
+            elif isinstance(obj, (tuple, list)):
+                return type(obj)(_to_mem_format(o, mem_format) for o in obj)
+            elif isinstance(obj, dict):
+                return {key: _to_mem_format(o, mem_format) for key, o in obj.items()}
+            else:
+                return obj
+
+        def _check_out_mem_format(output, input_mem_format, module_mem_format):
+            if isinstance(output, torch.Tensor):
+                if (output.dim() == 4 and (input_mem_format == torch.channels_last
+                    or (module_mem_format == torch.channels_last and 'Conv' in name and cudnn_greater_7_6))):  # noqa: E129
+                    self.assertTrue(output.is_contiguous(memory_format=torch.channels_last))
+                elif (output.dim() == 5 and (input_mem_format == torch.channels_last_3d
+                      or (module_mem_format == torch.channels_last_3d and 'Conv' in name and cudnn_greater_8))):
+                    self.assertTrue(output.is_contiguous(memory_format=torch.channels_last_3d))
+                else:
+                    self.assertTrue(output.is_contiguous())
+            elif isinstance(output, (tuple, list)):
+                [_check_out_mem_format(o, input_mem_format, module_mem_format) for o in output]
+            else:
+                return
+
+        for module_input in module_inputs:
+            if module_input.forward_input is None:
+                continue
+
+            channels_last = _check_dims(module_input.forward_input.args, 4)
+            channels_last_3d = _check_dims(module_input.forward_input.args, 5)
+            input_mem_formats, module_mem_formats = _get_mem_formats(channels_last, channels_last_3d)
+
+            with freeze_rng_state():
+                # === Instantiate the module. ===
+                args, kwargs = module_input.constructor_input.args, module_input.constructor_input.kwargs
+
+                m = module_cls(*args, **kwargs)
+                m.to(device).to(dtype)
+
+                for input_mem_format in input_mem_formats:
+                    # === Change memformat of input. ===
+                    module_input.forward_input.args = _to_mem_format(module_input.forward_input.args, input_mem_format)
+                    module_input.forward_input.kwargs = _to_mem_format(module_input.forward_input.kwargs,
+                                                                       input_mem_format)
+
+                    for module_mem_format in module_mem_formats:
+                        # === Change memformat of module ===
+                        m.to(memory_format=module_mem_format)
+
+                        # === Do forward pass. ===
+                        args, kwargs = module_input.forward_input.args, module_input.forward_input.kwargs
+                        outputs = m(*args, **kwargs)
+
+                        # === Compare outputs to a reference if one is specified. ===
+                        # TODO: Handle precision
+                        reference_fn = module_input.reference_fn
+                        if reference_fn is not None:
+                            ref_outputs = reference_fn(m, *args, **kwargs)
+                            self.assertEqual(outputs, ref_outputs)
+
+                        # === Check mem format of output. ===
+                        _check_out_mem_format(outputs, input_mem_format, module_mem_format)
+
+
 instantiate_device_type_tests(TestModule, globals())
 
 if __name__ == '__main__':
