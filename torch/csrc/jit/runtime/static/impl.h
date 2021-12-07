@@ -353,6 +353,12 @@ class TORCH_API StaticModule {
   FastSet<const Value*> managed_tensor_values_{};
   FastSet<const Value*> managed_output_tensor_values_{};
   FastSet<const Value*> leaked_values_{};
+
+  // Includes self if module_ != nullopt.
+  // Note that we might have num_inputs_ == 0 even if the schema has a `self`
+  // argument. In this case, `self` isn't used in the graph, but the schema
+  // includes it anyways to be consistent with the JIT interpreter.
+  size_t num_inputs_;
 };
 
 class TORCH_API StaticRuntime {
@@ -465,10 +471,18 @@ class TORCH_API StaticRuntime {
       const KeywordArgs& kwargs);
 
   // helper method for copying input args/kwargs into inputs_
+  template <typename IValueList>
   void set_inputs(
-      const std::vector<c10::IValue>& args,
-      const KeywordArgs& kwargs);
-  void set_inputs(std::vector<c10::IValue>&& args, const KeywordArgs& kwargs);
+      IValueList&& args,
+      const std::unordered_map<std::string, c10::IValue>& kwargs);
+
+  // Set Input(idx) to args[idx]. Invoked by set_inputs. Copies or moves
+  // depending on overload.
+  void set_arg(const size_t idx, std::vector<IValue>&& args);
+  void set_arg(const size_t idx, const std::vector<IValue>& args);
+
+  // Set Input(idx) to arg. Always copies. Used for kwargs.
+  void set_arg(const size_t idx, const IValue& arg);
 
   void verify_and_correct_memory_overlap(ProcessedNode& n);
 
@@ -507,6 +521,9 @@ class TORCH_API StaticRuntime {
   std::vector<IValue> values_;
   std::vector<IValue*> outputs_;
   std::vector<ProcessedNode> nodes_;
+
+  // Cache this so we don't have to call static_module_.first_input_is_self()
+  const bool first_input_is_self_;
 };
 
 class TORCH_API ProcessedFunction {
