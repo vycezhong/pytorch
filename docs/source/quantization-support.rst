@@ -1,7 +1,7 @@
 Quantization API Reference
 -------------------------------
 
-torch.quantization
+torch.ao.quantization
 ~~~~~~~~~~~~~~~~~~
 
 This module contains Eager mode quantization APIs.
@@ -51,7 +51,7 @@ Utility functions
     default_eval_fn
     get_observer_dict
 
-torch.quantization.quantize_fx
+torch.ao.quantization.quantize_fx
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This module contains FX graph mode quantization APIs (prototype).
@@ -126,13 +126,13 @@ regular full-precision tensor.
     topk
 
 
-torch.quantization.observer
+torch.ao.quantization.observer
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This module contains observers which are used to collect statistics about
 the values observed during calibration (PTQ) or training (QAT).
 
-.. currentmodule:: torch.quantization.observer
+.. currentmodule:: torch.ao.quantization.observer
 
 .. autosummary::
     :toctree: generated
@@ -159,7 +159,7 @@ the values observed during calibration (PTQ) or training (QAT).
     default_dynamic_quant_observer
     default_float_qparams_observer
 
-torch.quantization.fake_quantize
+torch.ao.quantization.fake_quantize
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This module implements modules which are used to perform fake quantization
@@ -188,7 +188,7 @@ during QAT.
     disable_observer
     enable_observer
 
-torch.quantization.qconfig
+torch.ao.quantization.qconfig
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This module defines `QConfig` and `QConfigDynamic` objects which are used
@@ -438,9 +438,44 @@ Quantized dtypes and quantization schemes
 
 Note that operator implementations currently only
 support per channel quantization for weights of the **conv** and **linear**
-operators. Furthermore the minimum and the maximum of the input data is
-mapped linearly to the minimum and the maximum of the quantized data
-type such that zero is represented with no quantization error.
+operators. Furthermore, the input data is
+mapped linearly to the the quantized data and vice versa
+as follows:
+
+    .. math::
+
+        \begin{aligned}
+            \text{Quantization:}&\\
+            &Q_\text{out} = \text{clamp}(x_\text{input}/s+z, Q_\text{min}, Q_\text{max})\\
+            \text{Dequantization:}&\\
+            &x_\text{out} = (Q_\text{input}-z)*s
+        \end{aligned}
+
+where :math:`\text{clamp}(.)` is the same as :func:`~torch.clamp` while the 
+scale :math:`s` and zero point :math:`z` are then computed 
+as decribed in :class:`~torch.ao.quantization.observer.MinMaxObserver`, specifically:
+
+    .. math::
+
+        \begin{aligned}
+            \text{if Symmetric:}&\\
+            &s = 2 \max(|x_\text{min}|, x_\text{max}) /
+                \left( Q_\text{max} - Q_\text{min} \right) \\
+            &z = \begin{cases}
+                0 & \text{if dtype is qint8} \\
+                128 & \text{otherwise}
+            \end{cases}\\
+            \text{Otherwise:}&\\
+                &s = \left( x_\text{max} - x_\text{min}  \right ) /
+                    \left( Q_\text{max} - Q_\text{min} \right ) \\
+                &z = Q_\text{min} - \text{round}(x_\text{min} / s)
+        \end{aligned}
+
+where :math:`[x_\text{min}, x_\text{max}]` denotes the range of the input data while 
+:math:`Q_\text{min}` and :math:`Q_\text{max}` are respectively the minimum and maximum values of the quantized dtype. 
+
+Note that the choice of :math:`s` and :math:`z` implies that zero is represented with no quantization error whenever zero is within 
+the range of the input data or symmetric quantization is being used.
 
 Additional data types and quantization schemes can be implemented through
 the `custom operator mechanism <https://pytorch.org/tutorials/advanced/torch_script_custom_ops.html>`_.
