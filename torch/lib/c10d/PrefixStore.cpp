@@ -27,6 +27,12 @@ void PrefixStore::set(
   store_->set(joinKey(key), value);
 }
 
+void PrefixStore::set_without_prefix(
+    const std::string& key,
+    const std::vector<uint8_t>& value) {
+  store_->set(key, value);
+}
+
 std::vector<uint8_t> PrefixStore::compareSet(
     const std::string& key,
     const std::vector<uint8_t>& expectedValue,
@@ -38,6 +44,10 @@ std::vector<uint8_t> PrefixStore::get(const std::string& key) {
   return store_->get(joinKey(key));
 }
 
+std::vector<uint8_t> PrefixStore::get_without_prefix(const std::string& key) {
+  return store_->get(key);
+}
+
 int64_t PrefixStore::add(const std::string& key, int64_t value) {
   return store_->add(joinKey(key), value);
 }
@@ -45,6 +55,10 @@ int64_t PrefixStore::add(const std::string& key, int64_t value) {
 bool PrefixStore::deleteKey(const std::string& key) {
   return store_->deleteKey(joinKey(key));
 }
+
+bool PrefixStore::deleteP2PKeys() {
+  return store_->deleteP2PKeys();
+};
 
 void PrefixStore::watchKey(const std::string& key, WatchKeyCallback callback) {
   return store_->watchKey(joinKey(key), std::move(callback));

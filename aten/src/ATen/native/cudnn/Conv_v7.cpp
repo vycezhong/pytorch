@@ -27,6 +27,17 @@
 #include <mutex>
 #include <stdint.h>
 #include <unordered_map>
+#include <iostream>
+#include <fstream>
+
+#ifdef __linux__
+#include <errno.h>
+#include <pwd.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
 
 // Note [behavior of cudnnFind and cudnnGet]
 // You'll notice that by default, in the ConvolutionDescriptor, we do the following:
@@ -95,11 +106,59 @@ std::ostream& operator<<(std::ostream & out, const ConvolutionArgs& args) {
 //
 // ---------------------------------------------------------------------
 
+
+
 // TODO: Use something less heavy duty than a big honking mutex
 template <typename T>
 struct BenchmarkCache {
   std::mutex mutex;
   std::unordered_map<ConvolutionParams, T, ParamsHash<ConvolutionParams>, ParamsEqual<ConvolutionParams>> map;
+  std::string cache_file_path;
+  
+// Swift: store the benchmark cache and load it next time
+#ifdef __linux__
+  // create cache folder and return the folder path
+  std::string create_cache_folder() {
+    std::string homedir;
+    if ((homedir = getenv("HOME")).empty()) {
+	homedir = getpwuid(getuid())->pw_dir;
+    }
+
+    std::string path = homedir + "/.cache/pytorch";
+    const char *dir = path.c_str();
+    struct stat st = {0};
+    if (stat(dir, &st) == -1) {
+	if (mkdir(dir, 0700) != 0) {
+	    std::cerr << "mkdir" << dir << " failed. error: " << strerror(errno) << "." << std::endl;
+	}
+    }
+
+    return path;
+  }
+
+  BenchmarkCache(std::string name) {
+    std::string dir = create_cache_folder();
+    cache_file_path = dir + "cudnn_conv_v7_benchmark_" + name + ".cache";
+    std::ifstream in(cache_file_path, std::ios::binary);
+    if (in.is_open()) {
+      int num_bytes = sizeof(ConvolutionParams) + sizeof(T);
+      std::vector<char> buffer(num_bytes);
+      int cnt = 0;
+      while (in.read(buffer.data(), num_bytes)) {
+        std::lock_guard<std::mutex> guard(mutex);
+        ConvolutionParams params;
+        T results;
+        std::memcpy((void*)&params, buffer.data(), sizeof(ConvolutionParams));
+        std::memcpy(
+            (void*)&results,
+            buffer.data() + sizeof(ConvolutionParams),
+            sizeof(T));
+        map[params] = results;
+	cnt += 1;
+      }
+    }
+  }
+#endif 
 
   bool find(const ConvolutionParams& params, T* results) {
     std::lock_guard<std::mutex> guard(mutex);
@@ -114,12 +173,32 @@ struct BenchmarkCache {
   void insert(const ConvolutionParams& params, const T& results) {
     std::lock_guard<std::mutex> guard(mutex);
     map[params] = results;
+
+#ifdef __linux__
+    int num_bytes = sizeof(ConvolutionParams) + sizeof(T);
+    std::vector<char> buffer(num_bytes);
+    std::ofstream out(cache_file_path, std::ios::binary | std::ios::app);
+    std::memcpy(buffer.data(), (void*)&params, sizeof(ConvolutionParams));
+    std::memcpy(
+        buffer.data() + sizeof(ConvolutionParams), (void*)&results, sizeof(T));
+    out.write(buffer.data(), num_bytes);
+    out.close();
+#endif
   }
 };
 
+#ifdef __linux__
+BenchmarkCache<cudnnConvolutionFwdAlgoPerf_t> fwd_algos(
+    "cudnnConvolutionFwdAlgoPerf_t");
+BenchmarkCache<cudnnConvolutionBwdDataAlgoPerf_t> bwd_data_algos(
+    "cudnnConvolutionBwdDataAlgoPerf_t");
+BenchmarkCache<cudnnConvolutionBwdFilterAlgoPerf_t> bwd_filter_algos(
+    "cudnnConvolutionBwdFilterAlgoPerf_t");
+#else
 BenchmarkCache<cudnnConvolutionFwdAlgoPerf_t> fwd_algos;
 BenchmarkCache<cudnnConvolutionBwdDataAlgoPerf_t> bwd_data_algos;
 BenchmarkCache<cudnnConvolutionBwdFilterAlgoPerf_t> bwd_filter_algos;
+#endif
 
 // TODO: Stop manually allocating CUDA memory; allocate an ATen byte
 // tensor instead.

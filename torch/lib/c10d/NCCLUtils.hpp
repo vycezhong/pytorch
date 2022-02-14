@@ -8,6 +8,8 @@
 
 #include <nccl.h>
 
+#include <c10d/Utils.hpp>
+
 namespace {
 // Provides additional detail into NCCL error codes based on when these are
 // thrown in the NCCL codebase.
@@ -140,7 +142,7 @@ class NCCLComm {
   ncclComm_t getNcclComm() {
     std::unique_lock<std::mutex> lock(mutex_);
     if (aborted_) {
-      throw std::runtime_error(
+      throw SwiftInternalError(
           "NCCL communicator was aborted on rank " + std::to_string(rank_) +
           ".");
     }
@@ -158,6 +160,26 @@ class NCCLComm {
     C10D_NCCL_CHECK(::ncclCommAbort(ncclComm_));
     aborted_ = true;
     ncclComm_ = nullptr;
+
+    // Set an appropriate error so that we avoid using the communicator.
+    if (ncclAsyncErr_ == ncclSuccess) {
+      ncclAsyncErr_ = ncclSystemError;
+    }
+#else
+    // This is a NOOP, if error checks are disabled.
+    return;
+#endif
+  }
+
+  void ncclCommMarkAbort() {
+    std::unique_lock<std::mutex> lock(mutex_);
+#ifdef ENABLE_NCCL_ERROR_CHECKING
+    if (aborted_) {
+      // Should not abort twice.
+      return;
+    }
+
+    C10D_NCCL_CHECK(::ncclCommMarkAbort(ncclComm_));
 
     // Set an appropriate error so that we avoid using the communicator.
     if (ncclAsyncErr_ == ncclSuccess) {

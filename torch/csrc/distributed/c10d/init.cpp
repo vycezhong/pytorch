@@ -1,6 +1,6 @@
 #include <torch/csrc/python_headers.h>
 
-#include <c10/util/intrusive_ptr.h>
+#include <c10/util/intrusive_ptr.h> 
 #include <c10d/FileStore.hpp>
 #include <c10d/TCPStore.hpp>
 #include <c10d/Utils.hpp>
@@ -248,6 +248,8 @@ PyObject* c10d_init(PyObject* _unused, PyObject* noargs) {
       torch_C_m.def_submodule("_distributed_c10d", "distributed c10d bindings");
 
   auto module = py::handle(m).cast<py::module>();
+
+  py::register_exception<::c10d::SwiftInternalError>(module, "SwiftInternalError");
 
   module
       .def(
